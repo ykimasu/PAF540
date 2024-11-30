@@ -13,7 +13,7 @@ library(sf)
 
 # Set your Census API key
 
-census_api_key("56653f97c495e43affd518fba73c381505dc81d9")
+census_api_key("56653f97c495e43affd518fba73c381505dc81d9", install = TRUE, overwrite = TRUE)
 
 # Retrieve 2010 median home value data from ACS
 abq_2010_home_value <- get_acs(
@@ -128,12 +128,6 @@ abq_sf$cluster_label <- as.factor(abq_sf$cluster_label)
 # Check
 str(abq_sf)
 
-# Check
-
-str(loaded_abq_sf)
-head(loaded_abq_sf@data)  # View the attribute table
-
-colnames(loaded_abq_sf@data)
 
 
 
