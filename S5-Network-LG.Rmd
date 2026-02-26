@@ -1,0 +1,163 @@
+---
+title: "Network-Clustering: Large Network"
+date: "2026-02-19"
+output:
+  html_document:
+    theme: readable
+    highlight: tango
+    toc: true
+---
+
+<style>
+/* Style the main title and section headers */
+h1, .title {
+  color: #8B5A2B; 
+  font-weight: bold;
+}
+
+h2 {
+  color: #8B5A2B;
+  border-bottom: 2px solid #f0f0f0;
+  padding-bottom: 10px;
+}
+
+/* Style the code chunks */
+pre {
+  background-color: #f8f8f8;
+  border: 1px solid #dddddd;
+  border-radius: 5px;
+  padding: 10px;
+}
+
+/* Style the R output (the ## boxes) */
+pre:not([class]) {
+  background-color: white;
+  color: #333333;
+  border: 1px solid #cccccc;
+}
+</style>
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Load Libraries
+
+Before we begin, we need to equip R with the specialized tools for network science. We load the tidyverse for data cleaning and igraph for the underlying mathematical graph structures. We add ggraph, which applies the 'grammar of graphics' to nodes and edges. Finally, tidygraph allows us to manipulate our network as if it were a simple spreadsheet. Notice how some functions 'mask' others; this is just R telling us that two tools have the same name.
+
+```{r, message=FALSE, warning=FALSE}
+library(tidyverse)
+library(tidygraph)
+library(ggraph)
+library(igraph)
+```
+# Data
+
+Now that we've mastered the logic with a small group, we are scaling our analysis up to a population of 300 individuals. With this many data points, patterns that were invisible in a small table—like the subtle correlation between late payments and debt—will begin to emerge as distinct clusters. You'll notice that the Euclidean distance matrix now contains 90,000 calculations, a task that would be impossible to do manually but takes R only a fraction of a second. This is where network science truly shines, as the Louvain algorithm can sift through these thousands of connections to find the hidden 'financial neighborhoods' in our community. As the network plot grows more complex, the importance of our 'Stress' layout becomes clear, as it automatically organizes this crowd into a readable map of financial behavior.
+Question 2. Here is the new dataset with more people. 
+
+
+```{r}
+URL <- "https://raw.githubusercontent.com/ykimasu/PAF540/refs/heads/main/network_cluster_300.csv"
+df <- read.csv(URL)
+```
+
+# Data Cleanup and Standardization
+
+Computers cannot perform math on names, so we use the select function to create a new object containing only our numeric variables. Once we have isolated the numbers, we apply the scale function to standardize the data, which centers every variable around a mean of zero. This is the 'equalizer' step: it ensures that high-value variables like Savings don't mathematically drown out smaller-scale variables like Credit Inquiries. Finally, we re-attach our 'Person' names as row labels so we can still identify our subjects after the numbers have been transformed. Standardizing is arguably the most critical step in distance-based clustering.
+
+```{r}
+df_numeric <- df %>%
+  select(where(is.numeric))
+df_scaled <- scale(df_numeric)
+rownames(df_scaled) <- df$Person
+```
+
+# Calculate Euclidean Distance
+
+With our variables now on an equal playing field, we calculate the Euclidean distance, which represents the 'straight-line' gap between every pair of individuals. The dist function creates a triangular matrix that measures how dissimilar each person is from everyone else based on all five financial dimensions simultaneously. We then convert this into a full square matrix so we can easily look up the relationship between any two people. In this matrix, a smaller number represents a shorter distance, meaning those two individuals have very similar financial profiles. This distance matrix is the mathematical foundation upon which our entire network will be built.
+
+```{r}
+dist_obj <- dist(df_scaled, method = "euclidean")
+dist_matrix <- as.matrix(dist_obj)
+```
+
+
+# Create Network Data
+
+To turn distances into a network, we have to decide what counts as a 'connection' by setting a mathematical threshold. Here, we use the quantile function to find the bottom 30% of distances, meaning we only connect people who are among the closest neighbors in the dataset. The ifelse statement creates an adjacency matrix: a grid of ones and zeros where a 'one' signifies a strong financial similarity. We also use the diag function to set the center diagonal to zero, ensuring that people aren't 'connected' to themselves. This step effectively filters out the noise, leaving us with only the most significant relationships in our data. 
+
+For the Expanded Financial Data, use option 1. For the larger network activity, try one of the options to create a network. Don't run two options at the same time. They are options to use. 
+
+Using the bottom 10% of distances
+
+```{r}
+threshold <- quantile(dist_obj, 0.10)
+adj_matrix <- ifelse(dist_matrix < threshold, 1, 0)
+
+diag(adj_matrix) <- 0
+```
+
+
+# Find Clusters
+
+Finally, we convert our matrix into a network graph and use the Louvain algorithm to detect natural communities based on the density of these connections. Unlike $k$-means, which forces a specific number of groups, this method lets the network reveal its own organic clusters. 
+
+```{r}
+net_graph <- as_tbl_graph(adj_matrix, directed = FALSE) %>%
+  activate(nodes) %>%
+  mutate(name = df$Person) %>%
+# Find clusters
+  mutate(community = as.factor(group_louvain()))
+```
+
+
+# Questions
+
+We use the ggraph package to visualize the result, employing a 'stress' layout that pulls similar people together and pushes different people apart. The colors you see represent the 'communities' the algorithm discovered, and the gray lines show the similarity bonds we defined earlier. This visualization provides a clear, intuitive map of the financial archetypes present in our community.
+
+#### Question 1: How many cluster do you see? Who are similar? Can you label the groups?
+
+
+```{r, eval = FALSE}
+net_clean <- as_tbl_graph(adj_matrix, directed = FALSE) %>%
+  activate(nodes) %>%
+  mutate(
+    name = df$Person,
+    community = as.factor(group_louvain()),
+    importance = centrality_degree()     # Calculate degree (number of connections) to hide less important labels
+  )
+
+ggraph(net_clean, layout = "stress") +
+  geom_edge_link(alpha = 0.1, color = "gray60") + 
+  geom_node_point(aes(color = community, size = importance), alpha = 0.8) +
+  geom_node_text(aes(label = ifelse(importance > quantile(importance, 0.95), name, "")), 
+                 repel = TRUE, size = 3, fontface = "bold") +
+  scale_size_continuous(range = c(1, 6)) +
+  theme_graph() +
+  theme(legend.position = "right") +
+  labs(
+    title = "Financial Similarity Communities",
+    subtitle = "300 Individuals | Connections: Top 10% Closest Neighbors",
+    color = "Community",
+    size = "Centrality"
+  )
+```
+
+Once we've identified these communities mathematically, we need to bring those labels back into our spreadsheet to understand the 'who' behind the 'where.' We use a left_join to map the community numbers from our network nodes back to our original list of 300 people based on their ID. This step transforms our abstract network back into a practical dataset where every person is now tagged with their financial 'neighborhood.' With this combined table, we can finally ask the big questions: for example, does Community 1 have a significantly lower average income than Community 4? This move from visual patterns to hard statistics is how we validate that our clusters represent real-world financial behaviors.
+
+#### Question 2: What patterns do you see from those communities?
+
+```{r, eval = FALSE}
+node_data <- net_clean %>%
+  activate(nodes) %>%
+  as_tibble() %>%
+  select(name, community)
+
+df_final <- df %>%
+  left_join(node_data, by = c("Person" = "name"))
+
+head(df_final)
+```
+
